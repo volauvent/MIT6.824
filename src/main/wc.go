@@ -16,16 +16,16 @@ import (
 // and look only at the contents argument. The return value is a slice
 // of key/value pairs.
 //
-func mapF(filename string, contents string) []mapreduce.KeyValue {
+func mapF(filename string, contents string) (res []mapreduce.KeyValue) {
 	// TODO: you have to write this function
 	res = make([]mapreduce.KeyValue, 0)
-	ss := strings.FieldsFunc(value, func(c rune) bool {
+	ss := strings.FieldsFunc(contents, func(c rune) bool {
 		return !unicode.IsLetter(c)
 	})
 	for _, s := range ss {
 		res = append(res, mapreduce.KeyValue{s, "1"})
 	}
-	return res
+	return
 }
 
 //
