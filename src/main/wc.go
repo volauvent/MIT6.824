@@ -15,17 +15,17 @@ import (
 // file's complete contents. You should ignore the input file name,
 // and look only at the contents argument. The return value is a slice
 // of key/value pairs.
-//
-func mapF(filename string, contents string) (res []mapreduce.KeyValue) {
+
+func mapF(filename string, contents string) []mapreduce.KeyValue {
 	// TODO: you have to write this function
-	res = make([]mapreduce.KeyValue, 0)
+	var res = make([]mapreduce.KeyValue, 0)
 	ss := strings.FieldsFunc(contents, func(c rune) bool {
-		return !unicode.IsLetter(c)
+		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
 	})
 	for _, s := range ss {
 		res = append(res, mapreduce.KeyValue{s, "1"})
 	}
-	return
+	return res
 }
 
 //

@@ -78,9 +78,9 @@ func doReduce(
 	}
 	sort.Strings(keys)
 
-	file, err := os.Create(mergeName(jobName, reduceTaskNumber))
+	file, err := os.Create(outFile)
 	if err != nil {
-		fmt.Printf("reduce merge file:%s can't open\n", mergeName(jobName, reduceTaskNumber))
+		fmt.Printf("reduce merge file:%s can't open\n", outFile)
 		return
 	}
 	enc := json.NewEncoder(file)
