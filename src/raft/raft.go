@@ -22,6 +22,8 @@ import (
 	"time"
 	"labrpc"
 	"sync"
+	"bytes"
+	"encoding/gob"
 )
 
 // import "bytes"
@@ -112,6 +114,13 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := gob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -124,9 +133,17 @@ func (rf *Raft) readPersist(data []byte) {
 	// d := gob.NewDecoder(r)
 	// d.Decode(&rf.xxx)
 	// d.Decode(&rf.yyy)
+
+
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
+
+	r := bytes.NewBuffer(data)
+	d := gob.NewDecoder(r)
+	d.Decode(&rf.currentTerm)
+	d.Decode(&rf.votedFor)
+	d.Decode(&rf.log)
 }
 
 
@@ -148,6 +165,7 @@ type AppendEntriesReply struct {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	// get new heart beat frame
 	rf.heartBeatCh <- true
@@ -222,6 +240,7 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *App
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	//defer rf.persist()
 
 	if ok {
 		//
@@ -234,6 +253,7 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntriesArgs, reply *App
 			rf.currentTerm = reply.Term
 			rf.state = FOLLOWER
 			rf.votedFor = -1
+			rf.persist()
 			return ok
 		}
 		//
@@ -294,6 +314,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	reply.VoteGranted = false
 
@@ -368,6 +389,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	//defer rf.persist()
 
 	if ok {
 		if rf.state != CANDIDATE {
@@ -381,12 +403,14 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 			rf.currentTerm = reply.Term
 			rf.state = FOLLOWER
 			rf.votedFor = -1
+			rf.persist()
 		}
 		if reply.VoteGranted {
 			rf.voteCount++
 			if rf.state == CANDIDATE && rf.voteCount > len(rf.peers)/2 {
 				rf.state = LEADER
 				rf.leaderCh <- true
+				rf.persist()
 			}
 		}
 	}
@@ -425,6 +449,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		index = rf.getLastIndex() + 1
 		rf.log = append(rf.log, LogEntry{LogIndex : index, LogTerm: term, LogCmd: command})
 		//fmt.Printf(" -- get new index: %v, term:%v\n", index, term)
+		rf.persist()
 	}
 
 	return index, term, isLeader
@@ -470,6 +495,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.grantVoteCh = make(chan bool, 100)
 	rf.leaderCh = make(chan bool, 100)
 	rf.commitCh = make(chan bool, 100)
+
+	rf.readPersist(persister.ReadRaftState())
 
 	go func() {
 		for {
@@ -562,10 +589,6 @@ func (rf *Raft) broatcastAppendEntries () {
 	// only leader can broadcast AppendEntries
 	if rf.state == LEADER {
 
-
-
-
-
 		N := rf.commitIndex
 		last := rf.getLastIndex()
 		for i := rf.commitIndex + 1; i <= last; i++ {
@@ -595,7 +618,6 @@ func (rf *Raft) broatcastAppendEntries () {
 			rf.commitIndex = N
 			rf.commitCh <- true
 		}
-
 
 		//broadcast commit log to every nodes
 		for i := range rf.peers {
@@ -627,7 +649,5 @@ func (rf *Raft) broatcastAppendEntries () {
 				rf.sendAppendEntries(server, args, &reply)
 			}(i, args)
 		}
-
-
 	}
 }
