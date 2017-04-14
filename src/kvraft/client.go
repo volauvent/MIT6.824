@@ -86,13 +86,19 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	ck.reqId++
 	ck.mu.Unlock()
 	for {
+		DPrintf("Try leader: %v", ck.preLeader)
+
 		//for _, server := range ck.servers {
 		reply := PutAppendReply{}
 		ok := ck.servers[ck.preLeader].Call("RaftKV.PutAppend", &args, &reply)
+		// DPrintf("is ok ? : %v", ok)
+		// DPrintf("is wrong leader ? : %v", reply.WrongLeader)
 		if ok && reply.WrongLeader == false {
+			DPrintf("***%v, %v***\n", key, value)
 			return
 		}
 		ck.preLeader = (ck.preLeader + 1) % len(ck.servers)
+		//time.Sleep(time.Millisecond)
 		//}
 	}
 }
@@ -100,6 +106,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 func (ck *Clerk) Put(key string, value string) {
 	ck.PutAppend(key, value, "Put")
 }
+
 func (ck *Clerk) Append(key string, value string) {
 	ck.PutAppend(key, value, "Append")
 }

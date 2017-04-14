@@ -7,6 +7,7 @@ import (
 	"raft"
 	"sync"
 	"time"
+	"bytes"
 )
 
 const Debug = 0
@@ -42,11 +43,13 @@ type RaftKV struct {
 	db 	map[string]string
 	ack 	map[int64]int
 	result 	map[int]chan Op
+	quit 	chan bool
 }
 
 func (kv *RaftKV) AppendEntryToLog(entry Op) bool {
 	index, _, isLeader := kv.rf.Start(entry)
 	if !isLeader {
+		DPrintf("not leader!\n")
 		return false
 	}
 
@@ -59,14 +62,18 @@ func (kv *RaftKV) AppendEntryToLog(entry Op) bool {
 	}
 	kv.mu.Unlock()
 
-	//
+	DPrintf("wait...\n")
+
 	select {
 	case op := <-ch:
+		DPrintf("success!\n")
 		return op == entry
 	case <-time.After(800 * time.Millisecond):
 		//log.Printf("timeout\n")
+		DPrintf("timeout!\n")
 		return false
 	}
+	return false
 }
 
 //func (kv *RaftKV) AppendEntryToLogRead(entry Op) bool {
@@ -130,6 +137,7 @@ func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *RaftKV) Kill() {
 	kv.rf.Kill()
 	// Your code here, if desired.
+	close(kv.quit)
 }
 
 //
@@ -166,47 +174,90 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	// You may need initialization code here.
 
-	kv.applyCh = make(chan raft.ApplyMsg)
+	kv.applyCh = make(chan raft.ApplyMsg, 100)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
-
-	// You may need initialization code here.
 	kv.db = make(map[string]string)
 	kv.result = make(map[int]chan Op)
 	kv.ack = make(map[int64]int)
+	kv.quit = make(chan bool)
 
 	go func() {
 		for {
 			//wait for the raft log
-			msg := <-kv.applyCh
+			// msg := <-kv.applyCh
+			select {
+			case msg := <-kv.applyCh:
 
-			index := msg.Index
-			op := msg.Command.(Op)
+				if msg.UseSnapshot {
+					DPrintf("Using snapshot...")
+					var LastIncludedIndex int
+					var LastIncludedTerm int
 
-			kv.mu.Lock()
-			if !kv.checkDup(&op) {
-				//kv.mu.Lock()
-				switch op.Type {
-				case "Put":
-					kv.db[op.Key] = op.Value
-				case "Append":
-					kv.db[op.Key] += op.Value
+					r := bytes.NewBuffer(msg.Snapshot)
+					d := gob.NewDecoder(r)
+
+					kv.mu.Lock()
+					d.Decode(&LastIncludedIndex)
+					d.Decode(&LastIncludedTerm)
+					kv.db = make(map[string]string)
+					kv.ack = make(map[int64]int)
+					d.Decode(&kv.db)
+					d.Decode(&kv.ack)
+					kv.mu.Unlock()
+
+				} else {
+
+					index := msg.Index
+					op := msg.Command.(Op)
+
+					kv.mu.Lock()
+					if !kv.checkDup(&op) {
+						//kv.mu.Lock()
+						switch op.Type {
+						case "Put":
+							kv.db[op.Key] = op.Value
+						case "Append":
+							kv.db[op.Key] += op.Value
+						}
+						kv.ack[op.Id] = op.ReqID
+					}
+
+					ch, ok := kv.result[index]
+					if ok {
+						select {
+						case <-ch:
+						case <-kv.quit:
+							return
+						default:
+						}
+
+						//ch <- op
+
+						select {
+						case ch <- op:
+						case <-kv.quit:
+							return
+						}
+
+					} else {
+						// ch = make(chan Op, 1)
+						kv.result[index] = make(chan Op, 1)
+					}
+
+					if maxraftstate != -1 && kv.rf.GetPerisistSize() > maxraftstate {
+						DPrintf("* start snapshot!!!")
+						w := new(bytes.Buffer)
+						e := gob.NewEncoder(w)
+						e.Encode(kv.db)
+						e.Encode(kv.ack)
+						data := w.Bytes()
+						go kv.rf.StartSnapshot(data, msg.Index)
+					}
+					kv.mu.Unlock()
 				}
-				kv.ack[op.Id] = op.ReqID
+			case <- kv.quit:
+				return
 			}
-
-			ch, ok := kv.result[index]
-			if ok {
-				select {
-				case <-ch:
-				default:
-				}
-
-			} else {
-				ch = make(chan Op, 1)
-				kv.result[index] = ch//make(chan Op, 1)
-			}
-			ch <- op
-			kv.mu.Unlock()
 		}
 	}()
 	return kv
