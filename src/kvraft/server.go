@@ -76,27 +76,6 @@ func (kv *RaftKV) AppendEntryToLog(entry Op) bool {
 	return false
 }
 
-//func (kv *RaftKV) AppendEntryToLogRead(entry Op) bool {
-//	index, _, isLeader := kv.rf.StartRead(entry)
-//	if !isLeader {
-//		return false
-//	}
-//	kv.mu.Lock()
-//	ch, ok := kv.result[index]
-//
-//	if !ok {
-//		ch = make(chan Op, 1)
-//		kv.result[index] = ch
-//	}
-//	kv.mu.Unlock()
-//	select {
-//	case op := <-ch:
-//		return op == entry
-//	case <-time.After(500 * time.Millisecond):
-//		//log.Printf("timeout\n")
-//		return false
-//	}
-//}
 
 func (kv *RaftKV) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
@@ -224,20 +203,28 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 					ch, ok := kv.result[index]
 					if ok {
+						//select {
+						//case <-ch:
+						//case <-kv.quit:
+						//	return
+						//default:
+						//}
+						//
+						////ch <- op
+						//
+						//select {
+						//case ch <- op:
+						//case <-kv.quit:
+						//	return
+						//}
+
 						select {
-						case <-ch:
-						case <-kv.quit:
+						case <- kv.result[index]:
+						case <- kv.quit:
 							return
 						default:
 						}
-
-						//ch <- op
-
-						select {
-						case ch <- op:
-						case <-kv.quit:
-							return
-						}
+						ch <- op
 
 					} else {
 						// ch = make(chan Op, 1)
