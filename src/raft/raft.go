@@ -122,11 +122,9 @@ func (rf *Raft) persist() {
 
 	w := new(bytes.Buffer)
 	e := gob.NewEncoder(w)
-	//rf.mu.Lock()
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
-	//rf.mu.Unlock()
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 
@@ -203,7 +201,7 @@ func (rf *Raft) InstallSnapshot(args InstallSnapshotArgs, reply *InstallSnapshot
 	}
 
 	if args.Term > rf.currentTerm {
-		// rf.currentTerm = args.Term
+		rf.currentTerm = args.Term
 		rf.state = FOLLOWER
 		rf.votedFor = -1
 	}
@@ -255,7 +253,6 @@ func (rf *Raft) readSnapshot(data []byte) {
 	rf.mu.Unlock()
 
 	msg := ApplyMsg{
-		Index: LastIncludedIndex,
 		UseSnapshot: true,
 		Snapshot: data,
 	}
@@ -305,10 +302,10 @@ func (rf *Raft) StartSnapshot(snapshot []byte, index int) {
 
 	var newLogEntries []LogEntry
 	newLogEntries = append(newLogEntries, LogEntry{LogIndex:index, LogTerm:rf.log[index-baseIndex].LogTerm})
-	// newLogEntries = append(newLogEntries, rf.log[index-baseIndex+1:]...)
-	for i := index + 1; i <= lastIndex; i++ {
-		newLogEntries = append(newLogEntries, rf.log[i-baseIndex])
-	}
+	newLogEntries = append(newLogEntries, rf.log[index-baseIndex+1:]...)
+	//for i := index + 1; i <= lastIndex; i++ {
+	//	newLogEntries = append(newLogEntries, rf.log[i-baseIndex])
+	//}
 
 	rf.log = newLogEntries
 	rf.persist()
