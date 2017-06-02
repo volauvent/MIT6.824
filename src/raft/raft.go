@@ -105,6 +105,10 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isLeader
 }
 
+func (rf *Raft) GetPersistSize() int {
+	return rf.persister.RaftStateSize()
+}
+
 //
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.

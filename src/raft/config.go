@@ -8,16 +8,24 @@ package raft
 // test with the original before submitting.
 //
 
-import "labrpc"
-import "log"
+import (
+	"labrpc"
+	"log"
+	"reflect"
+	"testing"
+
+	crand "crypto/rand"
+	"fmt"
+	"sync/atomic"
+)
+
 import "sync"
-import "testing"
+
 import "runtime"
-import crand "crypto/rand"
+
 import "encoding/base64"
-import "sync/atomic"
+
 import "time"
-import "fmt"
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -40,14 +48,7 @@ type config struct {
 	logs      []map[int]int // copy of each server's committed entries
 }
 
-var ncpu_once sync.Once
-
 func make_config(t *testing.T, n int, unreliable bool) *config {
-	ncpu_once.Do(func() {
-		if runtime.NumCPU() < 2 {
-			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
-		}
-	})
 	runtime.GOMAXPROCS(4)
 	cfg := &config{}
 	cfg.t = t
@@ -171,7 +172,7 @@ func (cfg *config) start1(i int) {
 					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.Index)
 				}
 			} else {
-				err_msg = fmt.Sprintf("committed command %v is not an int", m.Command)
+				err_msg = fmt.Sprintf("committed command %v is not an int %v", m.Command, reflect.TypeOf(m.Command))
 			}
 
 			if err_msg != "" {
@@ -415,6 +416,7 @@ func (cfg *config) one(cmd int, expectedServers int) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				// fmt.Printf("commit& cmd %d %+v\n", nd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {
